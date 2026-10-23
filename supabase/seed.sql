@@ -1,50 +1,44 @@
--- ============================================================
--- seed.sql — Datos de prueba para desarrollo local
--- ============================================================
+-- Seed data corregido
+delete from matches where stage_id in (select id from stages where tournament_id = 'aaaaaaaa-0000-0000-0000-000000000001');
+delete from participants where tournament_id = 'aaaaaaaa-0000-0000-0000-000000000001';
+delete from stages where tournament_id = 'aaaaaaaa-0000-0000-0000-000000000001';
+delete from tournaments where id = 'aaaaaaaa-0000-0000-0000-000000000001';
 
--- Admin de prueba (el UUID debe coincidir con un usuario de auth.users)
--- Se inserta manualmente después de crear la cuenta en local Supabase
-
--- Torneo de ejemplo
-insert into tournaments (id, created_by, name, slug, description, status, stadium, max_participants, seeding_method)
+insert into tournaments (id, name, slug, description, status, stadium, max_participants, seeding_method)
 values (
   'aaaaaaaa-0000-0000-0000-000000000001',
-  '00000000-0000-0000-0000-000000000001', -- admin user
   'Beyblade X Cup 2025',
   'beyblade-x-cup-2025',
-  'Torneo oficial de prueba. Formato: Swiss → Top 16 Eliminación Simple.',
-  'draft',
-  'Xcross Dome Standard',
-  32,
+  'Torneo oficial de prueba. Formato: Eliminación Simple desde 4tos de final.',
+  'in_progress',
+  'Xtreme Stadium Standard (BX-07)',
+  8,
   'manual'
 );
 
--- Puntos de finish por defecto
 select seed_default_finish_points('aaaaaaaa-0000-0000-0000-000000000001');
 
--- Etapa 1: Swiss (6 rondas, top 16 avanzan)
-insert into stages (id, tournament_id, position, name, format, match_type, points_to_win, swiss_rounds, advance_per_group)
+insert into stages (id, tournament_id, position, name, format, match_type, points_to_win)
 values (
   'bbbbbbbb-0000-0000-0000-000000000001',
   'aaaaaaaa-0000-0000-0000-000000000001',
-  0, 'Fase Swiss', 'swiss', '1on1', 4, 6, null
+  0,
+  'Fase Final — Eliminación Simple',
+  'single_elimination',
+  '3on3',
+  4
 );
 
--- Etapa 2: Single Elimination desde 16vos
-insert into stages (id, tournament_id, position, name, format, match_type, points_to_win, grand_finals_modifier)
-values (
-  'bbbbbbbb-0000-0000-0000-000000000002',
-  'aaaaaaaa-0000-0000-0000-000000000001',
-  1, 'Top 16 — Eliminación Simple', 'single_elimination', 'deck', 7, 'none'
-);
+-- Participantes
+insert into participants (id, tournament_id, display_name, seed) values
+  ('11111111-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000001', 'Kamen X (Dran Sword)', 1),
+  ('11111111-0000-0000-0000-000000000002', 'aaaaaaaa-0000-0000-0000-000000000001', 'Bird Kazami (Hells Scythe)', 2),
+  ('11111111-0000-0000-0000-000000000003', 'aaaaaaaa-0000-0000-0000-000000000001', 'Multi Nanairo (Wizard Arrow)', 3),
+  ('11111111-0000-0000-0000-000000000004', 'aaaaaaaa-0000-0000-0000-000000000001', 'Ekusu Kurosu (Dran Dagger)', 4);
 
--- 8 participantes de prueba
-insert into participants (tournament_id, display_name, seed) values
-  ('aaaaaaaa-0000-0000-0000-000000000001', 'Ryuga Hagane', 1),
-  ('aaaaaaaa-0000-0000-0000-000000000001', 'Gingka Hagane', 2),
-  ('aaaaaaaa-0000-0000-0000-000000000001', 'Kyoya Tategami', 3),
-  ('aaaaaaaa-0000-0000-0000-000000000001', 'Masamune Kadoya', 4),
-  ('aaaaaaaa-0000-0000-0000-000000000001', 'Tsubasa Otori', 5),
-  ('aaaaaaaa-0000-0000-0000-000000000001', 'Yu Tendo', 6),
-  ('aaaaaaaa-0000-0000-0000-000000000001', 'Zeo Abyss', 7),
-  ('aaaaaaaa-0000-0000-0000-000000000001', 'Toby', 8);
+-- Matches de Semifinales y Final
+insert into matches (id, stage_id, round, match_number, participant1_id, participant2_id, p1_match_points, p2_match_points, status)
+values
+  ('22222222-0000-0000-0000-000000000001', 'bbbbbbbb-0000-0000-0000-000000000001', 1, 1, '11111111-0000-0000-0000-000000000001', '11111111-0000-0000-0000-000000000004', 3, 2, 'in_progress'),
+  ('22222222-0000-0000-0000-000000000002', 'bbbbbbbb-0000-0000-0000-000000000001', 1, 2, '11111111-0000-0000-0000-000000000002', '11111111-0000-0000-0000-000000000003', 1, 4, 'completed'),
+  ('22222222-0000-0000-0000-000000000003', 'bbbbbbbb-0000-0000-0000-000000000001', 2, 1, null, '11111111-0000-0000-0000-000000000003', 0, 0, 'pending');
