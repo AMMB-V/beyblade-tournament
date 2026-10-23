@@ -45,7 +45,7 @@ create table profiles (
 -- ──────────────────────────────────────────
 
 create table organizations (
-  id          uuid primary key default uuid_generate_v4(),
+  id          uuid primary key default gen_random_uuid(),
   name        text not null,
   slug        text not null unique,
   logo_url    text,
@@ -67,7 +67,7 @@ create table organization_members (
 -- ──────────────────────────────────────────
 
 create table tournaments (
-  id                  uuid primary key default uuid_generate_v4(),
+  id                  uuid primary key default gen_random_uuid(),
   org_id              uuid references organizations(id),
   created_by          uuid not null references profiles(id),
   name                text not null,
@@ -101,7 +101,7 @@ create table tournaments (
 -- ──────────────────────────────────────────
 
 create table banned_parts (
-  id            uuid primary key default uuid_generate_v4(),
+  id            uuid primary key default gen_random_uuid(),
   tournament_id uuid not null references tournaments(id) on delete cascade,
   part_name     text not null,
   reason        text,
@@ -114,7 +114,7 @@ create table banned_parts (
 -- ──────────────────────────────────────────
 
 create table stages (
-  id                    uuid primary key default uuid_generate_v4(),
+  id                    uuid primary key default gen_random_uuid(),
   tournament_id         uuid not null references tournaments(id) on delete cascade,
   position              smallint not null,         -- orden de la etapa (0-indexed)
   name                  text not null,             -- ej: "Fase de Grupos", "Top 16"
@@ -142,7 +142,7 @@ create table stages (
 
 -- Puntos por tipo de finish (configurables por torneo)
 create table finish_point_rules (
-  id            uuid primary key default uuid_generate_v4(),
+  id            uuid primary key default gen_random_uuid(),
   tournament_id uuid not null references tournaments(id) on delete cascade,
   finish_type   finish_type not null,
   points        integer not null,
@@ -154,7 +154,7 @@ create table finish_point_rules (
 -- ──────────────────────────────────────────
 
 create table participants (
-  id            uuid primary key default uuid_generate_v4(),
+  id            uuid primary key default gen_random_uuid(),
   tournament_id uuid not null references tournaments(id) on delete cascade,
   profile_id    uuid references profiles(id),       -- null si es offline/manual
   display_name  text not null,
@@ -171,7 +171,7 @@ create table participants (
 -- ──────────────────────────────────────────
 
 create table groups (
-  id          uuid primary key default uuid_generate_v4(),
+  id          uuid primary key default gen_random_uuid(),
   stage_id    uuid not null references stages(id) on delete cascade,
   name        text not null,               -- ej: "Grupo A"
   position    smallint not null,
@@ -191,7 +191,7 @@ create table group_participants (
 -- ──────────────────────────────────────────
 
 create table matches (
-  id              uuid primary key default uuid_generate_v4(),
+  id              uuid primary key default gen_random_uuid(),
   stage_id        uuid not null references stages(id) on delete cascade,
   group_id        uuid references groups(id),       -- null si es eliminación directa
   round           smallint not null,                -- ronda dentro de la etapa
@@ -224,7 +224,7 @@ create table matches (
 -- ──────────────────────────────────────────
 
 create table match_decks (
-  id             uuid primary key default uuid_generate_v4(),
+  id             uuid primary key default gen_random_uuid(),
   match_id       uuid not null references matches(id) on delete cascade,
   participant_id uuid not null references participants(id),
   combo_1        text not null,
@@ -239,7 +239,7 @@ create table match_decks (
 -- ──────────────────────────────────────────
 
 create table battles (
-  id              uuid primary key default uuid_generate_v4(),
+  id              uuid primary key default gen_random_uuid(),
   match_id        uuid not null references matches(id) on delete cascade,
   battle_number   smallint not null,                -- 1, 2, 3...
   -- Combos usados en esta batalla (para deck/3on3)
@@ -260,7 +260,7 @@ create table battles (
 -- ──────────────────────────────────────────
 
 create table penalties (
-  id             uuid primary key default uuid_generate_v4(),
+  id             uuid primary key default gen_random_uuid(),
   match_id       uuid not null references matches(id) on delete cascade,
   battle_id      uuid references battles(id),
   participant_id uuid not null references participants(id),
@@ -275,7 +275,7 @@ create table penalties (
 -- ──────────────────────────────────────────
 
 create table bey_checks (
-  id             uuid primary key default uuid_generate_v4(),
+  id             uuid primary key default gen_random_uuid(),
   match_id       uuid not null references matches(id) on delete cascade,
   participant_id uuid not null references participants(id),
   combo_checked  text not null,
@@ -319,7 +319,7 @@ create table tournament_referees (
 -- ──────────────────────────────────────────
 
 create table stage_standings (
-  id                uuid primary key default uuid_generate_v4(),
+  id                uuid primary key default gen_random_uuid(),
   stage_id          uuid not null references stages(id) on delete cascade,
   group_id          uuid references groups(id),
   participant_id    uuid not null references participants(id),
