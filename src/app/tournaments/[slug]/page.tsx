@@ -4,6 +4,7 @@
 // ============================================================
 
 import React from 'react';
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import BracketViewer, { BracketMatch } from '@/components/bracket/BracketViewer';
 import { notFound } from 'next/navigation';
@@ -74,6 +75,12 @@ export default async function TournamentPage({ params }: TournamentPageProps) {
             <p className="text-xs text-slate-400 mt-1">Estadio: {tournament.stadium || 'Estándar Takara Tomy'}</p>
           </div>
           <div className="flex gap-2 items-center">
+            <Link
+              href={`/tournaments/${slug}/manage`}
+              className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs uppercase tracking-wider px-3 py-1.5 rounded-lg shadow transition-colors"
+            >
+              ⚙ Gestionar / Añadir Bladers
+            </Link>
             <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
               {tournament.status}
             </span>
