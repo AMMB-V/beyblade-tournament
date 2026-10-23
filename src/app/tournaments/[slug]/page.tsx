@@ -8,6 +8,8 @@ import { createClient } from '@/lib/supabase/server';
 import BracketViewer, { BracketMatch } from '@/components/bracket/BracketViewer';
 import { notFound } from 'next/navigation';
 
+export const dynamic = 'force-dynamic';
+
 interface TournamentPageProps {
   params: Promise<{ slug: string }>;
 }
