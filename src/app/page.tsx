@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
+import { logout } from '@/actions/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -10,6 +11,11 @@ export default async function Home() {
     .from('tournaments')
     .select('id, name, slug, description, status, stadium, created_at')
     .order('created_at', { ascending: false });
+
+  const { data: authData } = await supabase.auth.getUser();
+  const profile = authData.user
+    ? (await supabase.from('profiles').select('display_name, role').eq('id', authData.user.id).maybeSingle()).data
+    : null;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
@@ -23,12 +29,34 @@ export default async function Home() {
             </span>
           </div>
           <div className="flex items-center gap-4">
-            <Link
-              href="/tournaments/new"
-              className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs uppercase tracking-wider px-4 py-2.5 rounded-lg shadow-md hover:shadow-indigo-500/20 transition-all"
-            >
-              + Crear Torneo
-            </Link>
+            {authData.user ? (
+              <>
+                <span className="text-xs text-slate-400 font-mono hidden sm:inline">
+                  {profile?.display_name ?? authData.user.email} · {profile?.role}
+                </span>
+                <Link
+                  href="/tournaments/new"
+                  className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs uppercase tracking-wider px-4 py-2.5 rounded-lg shadow-md hover:shadow-indigo-500/20 transition-all"
+                >
+                  + Crear Torneo
+                </Link>
+                <form action={logout}>
+                  <button
+                    type="submit"
+                    className="text-xs uppercase tracking-wider font-bold text-slate-400 hover:text-slate-200 px-3 py-2.5"
+                  >
+                    Salir
+                  </button>
+                </form>
+              </>
+            ) : (
+              <Link
+                href="/login"
+                className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs uppercase tracking-wider px-4 py-2.5 rounded-lg shadow-md hover:shadow-indigo-500/20 transition-all"
+              >
+                Iniciar sesión
+              </Link>
+            )}
           </div>
         </div>
       </header>
