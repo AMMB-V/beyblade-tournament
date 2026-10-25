@@ -1,109 +1,121 @@
 'use server';
 
-// ============================================================
-// src/actions/referee.ts
-// Server Actions para arbitraje: captura de batallas y faltas
-// ============================================================
-
-import { createClient } from '@/lib/supabase/server';
 import { revalidatePath } from 'next/cache';
-import { applyBattle, applyDefault } from '@/lib/engine/scoring';
-import type { BattleResult, FinishType, MatchState } from '@/lib/engine/types';
+import { z } from 'zod';
+import { createClient } from '@/lib/supabase/server';
+import {
+  fail,
+  fromRpcError,
+  fromZodError,
+  ok,
+  uuidSchema,
+  type ActionResult,
+} from '@/lib/action-result';
 
-export async function recordBattleAction({
-  matchId,
-  scorerId,
-  finish,
-  pointsToWin = 4,
-}: {
-  matchId: string;
-  scorerId: string;
-  finish: FinishType;
-  pointsToWin?: number;
-}) {
+export type MatchSnapshot = {
+  id: string;
+  status: string;
+  winnerId: string | null;
+  p1Points: number;
+  p2Points: number;
+  p1Sets: number;
+  p2Sets: number;
+  version: number;
+};
+
+type MatchRow = {
+  id: string;
+  status: string;
+  winner_id: string | null;
+  p1_match_points: number;
+  p2_match_points: number;
+  p1_sets: number;
+  p2_sets: number;
+  version: number;
+};
+
+function toSnapshot(row: MatchRow): MatchSnapshot {
+  return {
+    id: row.id,
+    status: row.status,
+    winnerId: row.winner_id,
+    p1Points: row.p1_match_points,
+    p2Points: row.p2_match_points,
+    p1Sets: row.p1_sets,
+    p2Sets: row.p2_sets,
+    version: row.version,
+  };
+}
+
+function refresh(matchId: string) {
+  revalidatePath(`/referee/${matchId}`);
+  revalidatePath('/tournaments/[slug]', 'page');
+}
+
+const BattleSchema = z.object({
+  matchId: uuidSchema,
+  scorerId: uuidSchema,
+  finish: z.enum(['spin', 'over', 'burst', 'xtreme']),
+  expectedVersion: z.number().int().min(1),
+});
+
+// Registra una batalla en una sola transacción (función SQL record_battle):
+// suma puntos, cierra set o match y avanza al ganador al cruce siguiente.
+export async function recordBattleAction(input: unknown): Promise<ActionResult<MatchSnapshot>> {
+  const parsed = BattleSchema.safeParse(input);
+  if (!parsed.success) return fromZodError(parsed.error);
+  const { matchId, scorerId, finish, expectedVersion } = parsed.data;
+
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return fail('UNAUTHENTICATED', 'Inicia sesión para registrar batallas');
 
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) {
-    throw new Error('Debes estar autenticado para arbitrar');
-  }
-
-  // 1. Obtener match actual
-  const { data: match, error: matchError } = await supabase
-    .from('matches')
-    .select('*, battles(*)')
-    .eq('id', matchId)
-    .single();
-
-  if (matchError || !match) {
-    throw new Error('Match no encontrado');
-  }
-
-  // 2. Mapear a MatchState del motor
-  const engineMatch: MatchState = {
-    id: match.id,
-    player1Id: match.participant1_id,
-    player2Id: match.participant2_id,
-    p1Points: match.p1_match_points,
-    p2Points: match.p2_match_points,
-    battles: (match.battles || []).map((b: any) => ({
-      battleNumber: b.battle_number,
-      scorerId: b.scorer_id,
-      finish: b.finish as FinishType,
-      points: b.points_scored,
-    })),
-    winnerId: match.winner_id,
-    status: match.status as any,
-    nextMatchId: match.next_match_id,
-    nextMatchSlot: match.next_match_slot as any,
-    loserNextMatchId: match.loser_next_match_id,
-    loserNextSlot: match.loser_next_slot as any,
-    bracketSide: match.bracket_side as any,
-    round: match.round,
-    matchNumber: match.match_number,
-  };
-
-  const nextBattleNumber = engineMatch.battles.length + 1;
-  const newBattle: BattleResult = {
-    battleNumber: nextBattleNumber,
-    scorerId,
-    finish,
-    points: finish === 'xtreme' ? 3 : finish === 'spin' ? 1 : 2,
-  };
-
-  // 3. Ejecutar regla de negocio pura
-  const updatedMatch = applyBattle(engineMatch, newBattle, undefined, pointsToWin);
-
-  // 4. Persistir batalla
-  const { error: battleInsertError } = await supabase.from('battles').insert({
-    match_id: matchId,
-    battle_number: nextBattleNumber,
-    scorer_id: scorerId,
-    finish: finish,
-    points_scored: newBattle.points,
-    recorded_by: user.id,
+  const { data, error } = await supabase.rpc('record_battle', {
+    p_match: matchId,
+    p_scorer: scorerId,
+    p_finish: finish,
+    p_expected_version: expectedVersion,
   });
+  if (error) return fromRpcError(error);
 
-  if (battleInsertError) {
-    throw new Error(`Error al registrar batalla: ${battleInsertError.message}`);
-  }
+  refresh(matchId);
+  return ok(toSnapshot(data as MatchRow));
+}
 
-  // 5. Actualizar match
-  const { error: matchUpdateError } = await supabase
-    .from('matches')
-    .update({
-      p1_match_points: updatedMatch.p1Points,
-      p2_match_points: updatedMatch.p2Points,
-      winner_id: updatedMatch.winnerId,
-      status: updatedMatch.status,
-      completed_at: updatedMatch.status === 'completed' ? new Date().toISOString() : null,
-    })
-    .eq('id', matchId);
+const PenaltySchema = z.object({
+  matchId: uuidSchema,
+  offenderId: uuidSchema,
+  card: z.enum(['yellow', 'red']),
+  isFoul: z.boolean(),
+  reason: z.string().trim().max(200).optional(),
+  expectedVersion: z.number().int().min(1),
+});
 
-  if (matchUpdateError) {
-    throw new Error(`Error al actualizar match: ${matchUpdateError.message}`);
-  }
+// Registra una tarjeta o falta. Cada N faltas del mismo participante en el match
+// (N = fouls_per_point del torneo, 3 por defecto) suman foul_points al rival.
+export async function recordPenaltyAction(input: unknown): Promise<ActionResult<MatchSnapshot>> {
+  const parsed = PenaltySchema.safeParse(input);
+  if (!parsed.success) return fromZodError(parsed.error);
+  const { matchId, offenderId, card, isFoul, reason, expectedVersion } = parsed.data;
 
-  revalidatePath(`/matches/${matchId}`);
-  return { success: true, match: updatedMatch };
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return fail('UNAUTHENTICATED', 'Inicia sesión para registrar faltas');
+
+  const { data, error } = await supabase.rpc('record_penalty', {
+    p_match: matchId,
+    p_offender: offenderId,
+    p_card: card,
+    p_is_foul: isFoul,
+    p_reason: reason ?? null,
+    p_expected_version: expectedVersion,
+  });
+  if (error) return fromRpcError(error);
+
+  refresh(matchId);
+  return ok(toSnapshot(data as MatchRow));
 }

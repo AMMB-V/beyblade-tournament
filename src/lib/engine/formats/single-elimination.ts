@@ -98,7 +98,11 @@ export function generateSingleElimination(
     }
   }
 
-  return matches;
+  // Los byes avanzan solos: el ganador automático pasa a la ronda siguiente
+  return matches.reduce(
+    (acc, m) => (m.status === 'bye' ? advanceWinner(acc, m.id) : acc),
+    matches,
+  );
 }
 
 /**

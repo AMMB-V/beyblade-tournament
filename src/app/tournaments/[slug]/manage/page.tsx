@@ -9,9 +9,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { generateSingleElimination } from '@/lib/engine/formats/single-elimination';
-import { generateDoubleElimination } from '@/lib/engine/formats/double-elimination';
-import { DEFAULT_FINISH_POINTS } from '@/lib/engine/types';
+import { addParticipantsAction, generateBracketAction } from '@/actions/tournaments';
 
 export default function ManageTournamentPage() {
   const params = useParams();
@@ -23,6 +21,7 @@ export default function ManageTournamentPage() {
   const [loading, setLoading] = useState(true);
   const [bulkNames, setBulkNames] = useState('');
   const [generating, setGenerating] = useState(false);
+  const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
 
   // Cargar datos
   const loadData = async () => {
@@ -55,7 +54,7 @@ export default function ManageTournamentPage() {
     if (slug) loadData();
   }, [slug]);
 
-  // Agregar participantes en bloque
+  // Agregar participantes en bloque (las semillas y el cupo los controla el servidor)
   const handleAddBulk = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!bulkNames.trim() || !tournament) return;
@@ -65,100 +64,49 @@ export default function ManageTournamentPage() {
       .map((n) => n.trim())
       .filter((n) => n.length > 0);
 
-    const { createClient } = await import('@/lib/supabase/client');
-    const supabase = createClient();
-
-    const currentCount = participants.length;
-    const inserts = names.map((name, idx) => ({
-      tournament_id: tournament.id,
-      display_name: name,
-      seed: currentCount + idx + 1,
-      status: 'registered' as const,
-    }));
-
-    const { error } = await supabase.from('participants').insert(inserts);
-    if (error) {
-      alert(`Error al agregar participantes: ${error.message}`);
-    } else {
-      setBulkNames('');
-      await loadData();
+    const res = await addParticipantsAction({ tournamentId: tournament.id, names });
+    if (!res.ok) {
+      setMessage({ kind: 'error', text: res.error.message });
+      return;
     }
+
+    setBulkNames('');
+    setMessage({ kind: 'ok', text: `${res.data.added} participantes agregados` });
+    await loadData();
   };
 
-  // Generar Bracket
+  // Generar bracket: el servidor usa la configuración real de la etapa y lo guarda de forma atómica
   const handleGenerateBracket = async () => {
-    if (!tournament || participants.length < 2) {
-      alert('Se necesitan al menos 2 participantes para generar el cuadro');
+    const stage = tournament?.stages?.[0];
+    if (!stage) {
+      setMessage({ kind: 'error', text: 'No se encontró una etapa configurada para este torneo.' });
+      return;
+    }
+    if (participants.length < 2) {
+      setMessage({ kind: 'error', text: 'Se necesitan al menos 2 participantes para generar el cuadro.' });
       return;
     }
 
     setGenerating(true);
+    setMessage(null);
     try {
-      const { createClient } = await import('@/lib/supabase/client');
-      const supabase = createClient();
+      let res = await generateBracketAction({ stageId: stage.id, force: false });
 
-      const stage = tournament.stages?.[0];
-      if (!stage) {
-        alert('No se encontró una etapa configurada para este torneo.');
+      // Si ya hay resultados, resetear exige confirmación explícita (y rol admin)
+      if (!res.ok && res.error.code === 'CONFLICT' && res.error.message.includes('resultados')) {
+        const confirmed = window.confirm(
+          'El bracket ya tiene resultados. Resetearlo borra todas las batallas registradas y solo lo puede hacer un admin. ¿Continuar?'
+        );
+        if (!confirmed) return;
+        res = await generateBracketAction({ stageId: stage.id, force: true });
+      }
+
+      if (!res.ok) {
+        setMessage({ kind: 'error', text: res.error.message });
         return;
       }
 
-      const players = participants.map((p) => ({
-        id: p.id,
-        displayName: p.display_name,
-        seed: p.seed,
-      }));
-
-      const stageConfig = {
-        id: stage.id,
-        format: stage.format,
-        pointsToWin: stage.points_to_win || 4,
-        bestOf: 1,
-        matchType: stage.match_type || '1on1',
-        tiebreakers: ['wins', 'point_diff'] as any,
-        finishPoints: DEFAULT_FINISH_POINTS,
-        grandFinalsModifier: 'none' as const,
-      };
-
-      // Generar según formato
-      const generatedMatches =
-        stage.format === 'double_elimination'
-          ? generateDoubleElimination(players, stage.id, stageConfig)
-          : generateSingleElimination(players, stage.id, stageConfig);
-
-      // Eliminar matches previos si existen
-      await supabase.from('matches').delete().eq('stage_id', stage.id);
-
-      // Insertar nuevos matches
-      const rows = generatedMatches.map((m) => ({
-        id: m.id,
-        stage_id: stage.id,
-        round: m.round,
-        match_number: m.matchNumber,
-        bracket_side: m.bracketSide,
-        participant1_id: m.player1Id,
-        participant2_id: m.player2Id,
-        next_match_id: m.nextMatchId,
-        next_match_slot: m.nextMatchSlot,
-        loser_next_match_id: m.loserNextMatchId,
-        loser_next_slot: m.loserNextSlot,
-        status: m.status,
-        p1_match_points: 0,
-        p2_match_points: 0,
-      }));
-
-      const { error: insertErr } = await supabase.from('matches').insert(rows);
-      if (insertErr) throw insertErr;
-
-      // Actualizar estado del torneo a in_progress
-      await supabase
-        .from('tournaments')
-        .update({ status: 'in_progress' })
-        .eq('id', tournament.id);
-
       router.push(`/tournaments/${slug}`);
-    } catch (err: any) {
-      alert(`Error al generar bracket: ${err.message}`);
     } finally {
       setGenerating(false);
     }
@@ -188,6 +136,19 @@ export default function ManageTournamentPage() {
             {generating ? 'Generando...' : '⚡ Generar / Resetear Bracket'}
           </button>
         </div>
+
+        {message && (
+          <div
+            role={message.kind === 'error' ? 'alert' : 'status'}
+            className={`p-3 mb-4 rounded-lg text-xs border ${
+              message.kind === 'error'
+                ? 'bg-rose-500/10 border-rose-500/20 text-rose-400'
+                : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+            }`}
+          >
+            {message.text}
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Añadir participantes en bloque */}
